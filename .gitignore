@@ -1,0 +1,30 @@
+# Anchor / Solana build artifacts
+.anchor/
+target/
+test-ledger/
+
+# Compiled JS (generated from TypeScript)
+node_modules/
+
+# Yarn
+.yarn/
+.yarnrc.yml
+
+# Rust backup files
+**/*.rs.bk
+
+# macOS
+.DS_Store
+
+# Test keypairs — NEVER commit real or devnet keypairs
+test-user.json
+test-attacker.json
+test-payer.json
+test-payer2.json
+*.keypair.json
+wallet.json
+
+# Environment
+.env
+.env.*
+deploy.md
