@@ -75,9 +75,9 @@ describe("zdlt_seeker_staking", () => {
   // if the VaultConfig was initialized in a prior session with a different wallet.
   let authoritySigner: Keypair;
 
-  function stakeAccountPDA(stakeId: number): PublicKey {
+  function stakeAccountPDA(stakeId: number, owner: PublicKey): PublicKey {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("stake"), new anchor.BN(stakeId).toArrayLike(Buffer, "le", 8)],
+      [Buffer.from("stake"), owner.toBuffer(), new anchor.BN(stakeId).toArrayLike(Buffer, "le", 8)],
       PROGRAM_ID
     );
     return pda;
@@ -183,7 +183,7 @@ describe("zdlt_seeker_staking", () => {
       .accounts({
         config: configPDA,
         vaultAuthority: vaultAuthorityPDA,
-        stakeAccount: stakeAccountPDA(stakeId),
+        stakeAccount: stakeAccountPDA(stakeId, staker.publicKey),
         vaultAta: vaultATA,
         ownerAta: ata.address,
         owner: staker.publicKey,
@@ -224,7 +224,7 @@ describe("zdlt_seeker_staking", () => {
         .accounts({
           config: configPDA,
           vaultAuthority: vaultAuthorityPDA,
-          stakeAccount: stakeAccountPDA(id),
+          stakeAccount: stakeAccountPDA(id, user.publicKey),
           vaultAta: vaultATA,
           ownerAta: getAssociatedTokenAddressSync(zdltMint, user.publicKey),
           owner: user.publicKey,
@@ -247,7 +247,7 @@ describe("zdlt_seeker_staking", () => {
         .accounts({
           config: configPDA,
           vaultAuthority: vaultAuthorityPDA,
-          stakeAccount: stakeAccountPDA(id),
+          stakeAccount: stakeAccountPDA(id, user.publicKey),
           vaultAta: vaultATA,
           stakeOwner: user.publicKey,
           ownerAta: getAssociatedTokenAddressSync(zdltMint, user.publicKey),
@@ -273,7 +273,7 @@ describe("zdlt_seeker_staking", () => {
       .accounts({
         config: configPDA,
         vaultAuthority: vaultAuthorityPDA,
-        stakeAccount: stakeAccountPDA(id),
+        stakeAccount: stakeAccountPDA(id, user.publicKey),
         vaultAta: vaultATA,
         stakeOwner: user.publicKey,
         ownerAta,
@@ -307,7 +307,7 @@ describe("zdlt_seeker_staking", () => {
         .accounts({
           config: configPDA,
           vaultAuthority: vaultAuthorityPDA,
-          stakeAccount: stakeAccountPDA(id),
+          stakeAccount: stakeAccountPDA(id, user.publicKey),
           vaultAta: vaultATA,
           ownerAta: attackerAta.address,
           owner: attacker.publicKey,
@@ -334,7 +334,7 @@ describe("zdlt_seeker_staking", () => {
       .accounts({
         config: configPDA,
         vaultAuthority: vaultAuthorityPDA,
-        stakeAccount: stakeAccountPDA(id),
+        stakeAccount: stakeAccountPDA(id, user.publicKey),
         vaultAta: vaultATA,
         ownerAta,
         owner: user.publicKey,
@@ -350,5 +350,34 @@ describe("zdlt_seeker_staking", () => {
       750_000_000n,
       "exact principal must be returned on expired unstake"
     );
+  });
+
+  it("same stake_id under two different owners does not collide (owner is in the seed)", async () => {
+    // The fix: the stake PDA is seeded by (owner, stake_id), not stake_id alone.
+    // A user cannot squat/front-run another user's stake_id, because each owner's
+    // stake_id maps to a DISTINCT PDA. Before the fix, the second stake at the same
+    // stake_id would fail on an already-initialized PDA, letting any wallet block a
+    // victim's sequential DB stake_id.
+    const id = BASE_ID + 50;
+
+    // The victim (user) stakes at `id`.
+    await doStake(id, user, 100_000_000n, 86400);
+
+    // The "attacker" stakes at the SAME `id`. With owner in the seed this must
+    // SUCCEED against its own distinct PDA rather than collide with the victim's.
+    await doStake(id, attacker, 100_000_000n, 86400);
+
+    const userPda = stakeAccountPDA(id, user.publicKey);
+    const attackerPda = stakeAccountPDA(id, attacker.publicKey);
+    assert.notEqual(
+      userPda.toBase58(),
+      attackerPda.toBase58(),
+      "same stake_id must derive distinct PDAs per owner"
+    );
+
+    const userStake = await program.account.stakeAccount.fetch(userPda);
+    const attackerStake = await program.account.stakeAccount.fetch(attackerPda);
+    assert.ok(userStake.owner.equals(user.publicKey), "victim PDA owned by victim");
+    assert.ok(attackerStake.owner.equals(attacker.publicKey), "attacker PDA owned by attacker");
   });
 });

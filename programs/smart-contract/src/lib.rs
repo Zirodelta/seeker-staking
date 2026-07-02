@@ -257,7 +257,10 @@ pub struct Stake<'info> {
         init,
         payer = owner,
         space = StakeAccount::LEN,
-        seeds = [STAKE_SEED, &stake_id.to_le_bytes()],
+        // owner is part of the seed so the (owner, stake_id) PDA is unique per
+        // user. Without it, stake_id alone (a caller-supplied, sequential value)
+        // lets any wallet front-run/squat another user's stake_id and block them.
+        seeds = [STAKE_SEED, owner.key().as_ref(), &stake_id.to_le_bytes()],
         bump,
     )]
     pub stake_account: Account<'info, StakeAccount>,
@@ -296,7 +299,7 @@ pub struct Unstake<'info> {
 
     #[account(
         mut,
-        seeds = [STAKE_SEED, &stake_id.to_le_bytes()],
+        seeds = [STAKE_SEED, owner.key().as_ref(), &stake_id.to_le_bytes()],
         bump = stake_account.bump,
         has_one = owner @ VaultError::OwnerMismatch,
         close = owner,
@@ -336,7 +339,7 @@ pub struct ForceUnstake<'info> {
 
     #[account(
         mut,
-        seeds = [STAKE_SEED, &stake_id.to_le_bytes()],
+        seeds = [STAKE_SEED, stake_owner.key().as_ref(), &stake_id.to_le_bytes()],
         bump = stake_account.bump,
         constraint = stake_account.owner == stake_owner.key() @ VaultError::OwnerMismatch,
         close = stake_owner,
